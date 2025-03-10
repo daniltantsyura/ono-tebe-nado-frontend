@@ -63,7 +63,7 @@ class Screen {
 
     setState(state: ScreenState) {
         if (this.prevScreen) this.prevScreen.unmount();
-        if(state.modalContent instanceof HTMLElement) this.modal.content = state.modalContent;
+        if(state.modalContent instanceof HTMLElement) this.modal.render({content: state.modalContent});
 
         this.setElement(this.content, state.content);
         state.mount();
@@ -94,7 +94,8 @@ class PreviewModal extends ScreenState {
     }
 
     set item(itemData: IItem) {
-        
+        const item = new this.itemConstructor();
+        this.modalContent = item.render(itemData);
     }
 }
 
@@ -117,22 +118,46 @@ class Catalog extends Model<ICatalog> implements ICatalog {
 }
 
 interface IItemConstructor {
-    new (): Component<IItem>;
+    new (modalScreen?: ScreenState, events?: EventEmitter): Component<IItem>;
 }
 
 class CatalogView extends Component<ICatalog> {
     protected itemsContainer: HTMLElement;
 
-    constructor(protected Item: IItemConstructor) {
+    constructor(protected Item: IItemConstructor, protected modalScreen?: ScreenState, protected events?: EventEmitter) {
         super(ensureElement('.catalog'));
         this.itemsContainer = ensureElement('.catalog__items', this.container);
     }
 
     set items(items: IItem[]) {
         this.itemsContainer.replaceChildren(...items.map(item => {
-            const itemView = new this.Item();
+            const itemView = new this.Item(this.modalScreen, this.events);
             return itemView.render(item);
         }));
+    }
+}
+
+class ModalLotView extends Component<IItem> {
+    about: string;
+    status: string;
+    datetime: string;
+
+    constructor () {
+        super(ensureElement('.modal .lot').cloneNode(true) as HTMLElement);
+    }
+
+    set image(url: string) {
+        const imageElement = ensureElement('.lot__image', this.container) as HTMLImageElement;
+        imageElement.src = url;
+    }
+
+    set title(title: string) {
+        console.log(this.container);
+        ensureElement('.lot__title', this.container).textContent = title;
+    }
+
+    set description(description: string) {
+        console.log(description);
     }
 }
 
@@ -140,7 +165,7 @@ class CatalogItemView extends Component<IItem> {
     id: string;
     date: string;
     
-    constructor() {
+    constructor(protected modalScreen?: ScreenState, protected events?: EventEmitter) {
         const template = document.querySelector('#card') as HTMLTemplateElement;
         const templateContent = template.content;
         const element: HTMLElement = templateContent.querySelector('.catalog_item.card').cloneNode(true) as HTMLElement;
@@ -149,7 +174,7 @@ class CatalogItemView extends Component<IItem> {
     }
 
     protected onClick = () => {
-        alert(`Click on ${this.id}`);
+        this.events.emit<Partial<IItem>>('catalog.item:clicked', {id: this.id});
     }
 
     set title(title: string) {
@@ -194,17 +219,50 @@ class CatalogItemView extends Component<IItem> {
 const catalog = new Catalog({
     items: []
 }, events);
-const catalogView = new CatalogView(CatalogItemView);
 const modal = new Modal(ensureElement('#modal-container'), events);
+const previewModal = new PreviewModal(ModalLotView);
+const catalogView = new CatalogView(CatalogItemView, previewModal, events);
 
-events.on('catalog.items:changed', () => {
-    catalogView.render(catalog);
-});
 
 const screen = new Screen(modal);
 const mainScreen = new MainScreen(catalogView.render(catalog));
 
 screen.setState(mainScreen);
+
+events.on('catalog.items:changed', () => {
+    catalogView.render(catalog);
+});
+
+events.on('catalog.item:clicked', (data: Partial<IItem>) => {
+    api.getLotItem(data.id)
+        .then((res: IItem) => {
+            previewModal.item = res;
+            screen.setState(previewModal);
+        })
+        .catch((err) => {
+            console.error(err);
+        });
+});
+
+events.on<{modalContainer: HTMLElement}>('modal:open', (data) => {
+    const modalHeight: number = data.modalContainer.offsetHeight;
+    const windowHeight: number = window.innerHeight;
+    let initialScrollTop = 0;
+
+    window.addEventListener('scroll', () => {
+        const scrollTop = window.scrollY;
+
+        if (scrollTop + windowHeight >= modalHeight) {
+            data.modalContainer.style.position = 'fixed';
+            data.modalContainer.style.top = '90%'; 
+            data.modalContainer.style.transform = `translate(-50%, calc(-50% + ${initialScrollTop}px))`;
+        } else {
+            data.modalContainer.style.position = 'absolute';
+            data.modalContainer.style.top = `${scrollTop}px`;
+            initialScrollTop = scrollTop;
+        }
+    });
+});
 
 api.getLotList()
     .then(result => {
