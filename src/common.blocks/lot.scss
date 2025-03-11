@@ -14,7 +14,18 @@
 
   &__status {
     @include mixins.flex(column);
-    gap: 3rem;
+    gap: 10px;
+    align-items: center;
+
+    &-timer {
+      font-size: 50px;
+      font-weight: 700;
+    }
+
+    &-text {
+      size: 30px;
+      font-weight: 400;
+    }
   }
 
   &__content {
@@ -64,6 +75,7 @@
   &__bid {
     flex-direction: row;
     padding: 0 $defaultPadding;
+    display: none;
 
     &-amount {
       @include mixins.flex(row);
@@ -83,6 +95,7 @@
     @include mixins.flex(column);
     border-top: 1px solid #232427;
     cursor: default;
+    display: none;
 
     &-caption {
       opacity: 0.5;

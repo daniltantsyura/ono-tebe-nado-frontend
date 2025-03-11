@@ -6,10 +6,11 @@ import {EventEmitter} from "./components/base/events";
 import { Model } from './components/base/Model';
 import { Component } from './components/base/Component';
 import { createElement, ensureElement, getViewportBottom, ensureAllElements } from './utils/utils';
-import { extend, result } from 'lodash';
+import { extend, now, result } from 'lodash';
 import { dayjs } from './utils/utils';
 import _ from 'lodash';
 import { Modal } from './components/common/Modal';
+import { Duration } from 'dayjs/plugin/duration';
 
 const events = new EventEmitter();
 const api = new AuctionAPI(CDN_URL, API_URL);
@@ -139,8 +140,7 @@ class CatalogView extends Component<ICatalog> {
 
 class ModalLotView extends Component<IItem> {
     about: string;
-    status: string;
-    datetime: string;
+    endDate: any;
 
     constructor () {
         super(ensureElement('.modal .lot').cloneNode(true) as HTMLElement);
@@ -160,8 +160,6 @@ class ModalLotView extends Component<IItem> {
         const paragraphs = ensureAllElements('.lot__description', this.container);
         const descriptionTexts = description.split('\n');
 
-        console.log(descriptionTexts);
-
         descriptionTexts.forEach((text: string, i) => {
             if (paragraphs[i] instanceof HTMLElement) {
                 paragraphs[i].textContent = text;
@@ -169,6 +167,34 @@ class ModalLotView extends Component<IItem> {
                 contentElem.append(createElement('p', {textContent: text}));
             }
         });
+    }
+
+    set datetime(value: string) {
+        this.endDate = dayjs(value);
+    }
+    
+    get datetime() {
+        const now = dayjs();
+        const duration = dayjs.duration(this.endDate.diff(now));
+        const days = duration.days();
+        const hours = duration.hours();
+        const minutes = duration.minutes();
+        const seconds = duration.seconds();
+
+        return `${days}д ${hours}ч ${minutes}м ${seconds}с`;
+    }
+
+    set status(status: string) {
+        const timerElement = ensureElement('.lot__status-timer', this.container);
+        const textElement = ensureElement('.lot__status-text', this.container);
+        switch (status) {
+            case 'wait':
+                setInterval(()=>{this.setText(timerElement, this.datetime)}, 1000);
+                this.setText(textElement, 'До начала аукциона');
+            break;
+            case 'active':
+
+        }
     }
 }
 
