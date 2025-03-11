@@ -2,11 +2,11 @@
 @use "mixins";
 
 html, body.page {
-	height: 100%;
 	font-family: $font;
 	font-size: $baseFontSize;
 	color: $baseFontColor;
 	background: $background;
+	position: relative;
 }
 
 .page__wrapper {

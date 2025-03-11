@@ -5,7 +5,7 @@ import {API_URL, CDN_URL} from "./utils/constants";
 import {EventEmitter} from "./components/base/events";
 import { Model } from './components/base/Model';
 import { Component } from './components/base/Component';
-import { createElement, ensureElement } from './utils/utils';
+import { createElement, ensureElement, getViewportBottom, ensureAllElements } from './utils/utils';
 import { extend, result } from 'lodash';
 import { dayjs } from './utils/utils';
 import _ from 'lodash';
@@ -152,12 +152,23 @@ class ModalLotView extends Component<IItem> {
     }
 
     set title(title: string) {
-        console.log(this.container);
         ensureElement('.lot__title', this.container).textContent = title;
     }
 
     set description(description: string) {
-        console.log(description);
+        const contentElem = ensureElement('.lot__content', this.container);
+        const paragraphs = ensureAllElements('.lot__description', this.container);
+        const descriptionTexts = description.split('\n');
+
+        console.log(descriptionTexts);
+
+        descriptionTexts.forEach((text: string, i) => {
+            if (paragraphs[i] instanceof HTMLElement) {
+                paragraphs[i].textContent = text;
+            } else {
+                contentElem.append(createElement('p', {textContent: text}));
+            }
+        });
     }
 }
 
@@ -245,23 +256,7 @@ events.on('catalog.item:clicked', (data: Partial<IItem>) => {
 });
 
 events.on<{modalContainer: HTMLElement}>('modal:open', (data) => {
-    const modalHeight: number = data.modalContainer.offsetHeight;
-    const windowHeight: number = window.innerHeight;
-    let initialScrollTop = 0;
 
-    window.addEventListener('scroll', () => {
-        const scrollTop = window.scrollY;
-
-        if (scrollTop + windowHeight >= modalHeight) {
-            data.modalContainer.style.position = 'fixed';
-            data.modalContainer.style.top = '90%'; 
-            data.modalContainer.style.transform = `translate(-50%, calc(-50% + ${initialScrollTop}px))`;
-        } else {
-            data.modalContainer.style.position = 'absolute';
-            data.modalContainer.style.top = `${scrollTop}px`;
-            initialScrollTop = scrollTop;
-        }
-    });
 });
 
 api.getLotList()
