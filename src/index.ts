@@ -6,11 +6,12 @@ import {EventEmitter} from "./components/base/events";
 import { Model } from './components/base/Model';
 import { Component } from './components/base/Component';
 import { createElement, ensureElement, getViewportBottom, ensureAllElements } from './utils/utils';
-import { extend, now, result } from 'lodash';
+import { extend, max, now, result } from 'lodash';
 import { dayjs } from './utils/utils';
 import _ from 'lodash';
 import { Modal } from './components/common/Modal';
 import { Duration } from 'dayjs/plugin/duration';
+import { LotStatus, ILot, ILotItem } from './types/index'
 
 const events = new EventEmitter();
 const api = new AuctionAPI(CDN_URL, API_URL);
@@ -20,13 +21,11 @@ events.onAll(({ eventName, data }) => {
     console.log(eventName, data);
 })
 
-type ItemStatus = 'wait' | 'active' | 'closed';
-
 interface IItem {
     id: string;
     title: string;
     about: string;
-    status: ItemStatus;
+    status: LotStatus;
     datetime: string;
     image: string;
 }
@@ -90,13 +89,23 @@ class PreviewModal extends ScreenState {
     content: ScreenElement = false;
     modalContent: HTMLElement;
 
-    constructor(protected itemConstructor: IItemConstructor) {
+    constructor(protected itemConstructor: IItemConstructor, protected events: EventEmitter) {
         super();
     }
 
     set item(itemData: IItem) {
-        const item = new this.itemConstructor();
-        this.modalContent = item.render(itemData);
+        const item = new this.itemConstructor(this.events);
+        console.log(itemData);
+        this.modalContent = item.render(_.pick(itemData, [
+            'id', 
+            'about', 
+            'datetime',
+            'history', 
+            'image',
+            'title',
+            'description',
+            'status',
+        ]));
     }
 }
 
@@ -119,30 +128,36 @@ class Catalog extends Model<ICatalog> implements ICatalog {
 }
 
 interface IItemConstructor {
-    new (modalScreen?: ScreenState, events?: EventEmitter): Component<IItem>;
+    new (events?: EventEmitter): Component<IItem>;
 }
 
 class CatalogView extends Component<ICatalog> {
     protected itemsContainer: HTMLElement;
 
-    constructor(protected Item: IItemConstructor, protected modalScreen?: ScreenState, protected events?: EventEmitter) {
+    constructor(protected Item: IItemConstructor, protected events?: EventEmitter) {
         super(ensureElement('.catalog'));
         this.itemsContainer = ensureElement('.catalog__items', this.container);
     }
 
     set items(items: IItem[]) {
         this.itemsContainer.replaceChildren(...items.map(item => {
-            const itemView = new this.Item(this.modalScreen, this.events);
+            const itemView = new this.Item(this.events);
             return itemView.render(item);
         }));
     }
 }
 
-class ModalLotView extends Component<IItem> {
-    about: string;
-    endDate: any;
+class LotModel extends Model<ILotItem> implements ILot {
+    id: string;
+    
+}
 
-    constructor () {
+class ModalLotView extends Component<ILotItem> {
+    about: string;
+    datetime: string;
+    history: number[];
+
+    constructor (protected events: EventEmitter) {
         super(ensureElement('.modal .lot').cloneNode(true) as HTMLElement);
     }
 
@@ -168,14 +183,11 @@ class ModalLotView extends Component<IItem> {
             }
         });
     }
-
-    set datetime(value: string) {
-        this.endDate = dayjs(value);
-    }
     
-    get datetime() {
+    get timer() {
+        const endDate = dayjs(this.datetime);
         const now = dayjs();
-        const duration = dayjs.duration(this.endDate.diff(now));
+        const duration = dayjs.duration(endDate.diff(now));
         const days = duration.days();
         const hours = duration.hours();
         const minutes = duration.minutes();
@@ -185,16 +197,41 @@ class ModalLotView extends Component<IItem> {
     }
 
     set status(status: string) {
-        const timerElement = ensureElement('.lot__status-timer', this.container);
         const textElement = ensureElement('.lot__status-text', this.container);
         switch (status) {
             case 'wait':
-                setInterval(()=>{this.setText(timerElement, this.datetime)}, 1000);
                 this.setText(textElement, 'До начала аукциона');
+                this.events.emit('lot:countdown', {showTimer: this.showTimer});
             break;
             case 'active':
-
+                this.showHistory();
+                this.setText(textElement, 'До закрытия лота');
+                this.events.emit('lot:countdown', {showTimer: this.showTimer});
+                this.toggleClass(ensureElement('.lot__bid', this.container), 'lot__bid_active');
+            break;
+            case 'closed':
+                this.setText(ensureElement('.lot__status-timer', this.container), 'Аукцион завершён');
+                this.setText(textElement, `Продано за ${max(this.history)} ₽`);
         }
+    }
+
+    private showHistory() {
+        const historyElement: HTMLElement = ensureElement('.lot__history', this.container);
+        const historyItems: HTMLElement[] = [];
+        const historyItemsList = ensureElement('.lot__history-bids', historyElement);
+        this.history.some((bid, i) => {
+            if (i > 5) {
+                return true;
+            }
+            historyItems.push(createElement('li', {className: 'lot__history-item', textContent: String(bid)}));
+        });
+        historyItemsList.replaceChildren(...historyItems);
+        this.toggleClass(historyElement, 'lot__history_active', true);
+    }
+
+    private showTimer = () => {
+        const timerElement = ensureElement('.lot__status-timer', this.container);
+        this.setText(timerElement, this.timer);
     }
 }
 
@@ -202,7 +239,7 @@ class CatalogItemView extends Component<IItem> {
     id: string;
     date: string;
     
-    constructor(protected modalScreen?: ScreenState, protected events?: EventEmitter) {
+    constructor(protected events?: EventEmitter) {
         const template = document.querySelector('#card') as HTMLTemplateElement;
         const templateContent = template.content;
         const element: HTMLElement = templateContent.querySelector('.catalog_item.card').cloneNode(true) as HTMLElement;
@@ -222,7 +259,7 @@ class CatalogItemView extends Component<IItem> {
         ensureElement('.card__description', this.container).textContent = description;
     }
 
-    set status(status: ItemStatus) {
+    set status(status: LotStatus) {
         const statusClass = 'card__status'
         const statusElement = ensureElement(`.${statusClass}`, this.container);
         switch (status) {
@@ -248,7 +285,7 @@ class CatalogItemView extends Component<IItem> {
         imageElement.src = url;
     }
 
-    protected modifyStatus(element: HTMLElement, className: string, status: ItemStatus) {
+    protected modifyStatus(element: HTMLElement, className: string, status: LotStatus) {
         this.toggleClass(element, `${className}_${status}`);
     }
 }
@@ -257,12 +294,13 @@ const catalog = new Catalog({
     items: []
 }, events);
 const modal = new Modal(ensureElement('#modal-container'), events);
-const previewModal = new PreviewModal(ModalLotView);
-const catalogView = new CatalogView(CatalogItemView, previewModal, events);
+const previewModal = new PreviewModal(ModalLotView, events);
+const catalogView = new CatalogView(CatalogItemView, events);
 
 
 const screen = new Screen(modal);
 const mainScreen = new MainScreen(catalogView.render(catalog));
+let currentInterval: number;
 
 screen.setState(mainScreen);
 
@@ -284,6 +322,12 @@ events.on('catalog.item:clicked', (data: Partial<IItem>) => {
 events.on<{modalContainer: HTMLElement}>('modal:open', (data) => {
 
 });
+
+events.on<{showTimer: Function}>('lot:countdown', (data) => {
+    clearInterval(currentInterval);
+    data.showTimer();
+    currentInterval = setInterval(data.showTimer, 1000);
+})
 
 api.getLotList()
     .then(result => {
